@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pitch replay - continuous 0-90 from a sparse event log</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #e9eef2;
+        --muted: #9aa7b2;
+        --panel: #11161c;
+        --edge: #232c35;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: #0b0f13;
+        color: var(--ink);
+        font: 14px/1.5 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      }
+      header { padding: 18px 20px 10px; }
+      h1 { margin: 0 0 4px; font-size: 17px; letter-spacing: 0.01em; }
+      header p { margin: 0; color: var(--muted); max-width: 78ch; }
+      #stage {
+        height: min(66vh, 620px);
+        margin: 14px 20px;
+        border: 1px solid var(--edge);
+        border-radius: 10px;
+        overflow: hidden;
+        background: #0d1117;
+      }
+      #controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin: 0 20px 18px;
+      }
+      button, input[type="number"] {
+        background: var(--panel);
+        color: var(--ink);
+        border: 1px solid var(--edge);
+        border-radius: 7px;
+        padding: 7px 13px;
+        font: inherit;
+        cursor: pointer;
+      }
+      input[type="number"] { width: 120px; cursor: text; }
+      button:hover { border-color: #3a4753; }
+      input[type="range"] { flex: 1 1 260px; min-width: 200px; accent-color: #ffe27a; }
+      label { color: var(--muted); }
+      footer { margin: 0 20px 30px; color: var(--muted); max-width: 78ch; }
+      code { background: var(--panel); padding: 1px 5px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Pitch replay &mdash; a full match from a sparse event log</h1>
+      <p>
+        The log holds one pitch position per event, a few seconds apart. Everything between two
+        events is invented here: the ball travels at a plausible speed and then dwells, and the
+        other twenty-one players are a pure function of the clock, the formation and the ball.
+        Nothing is simulated frame to frame, so seeking is exact &mdash; drag the scrubber and the
+        picture matches what playing to that minute would have shown. Same seed, same replay.
+      </p>
+    </header>
+    <div id="stage"></div>
+    <div id="controls">
+      <button id="play">Pause</button>
+      <button id="speed">60x</button>
+      <input type="range" id="scrub" min="0" max="5400" value="0" step="1" aria-label="Seek" />
+      <label for="seed">seed</label>
+      <input type="number" id="seed" value="20260907" />
+      <button id="reload">New match</button>
+    </div>
+    <footer>
+      TypeScript and PixiJS 8, no framework and no backend; the whole thing mounts into one
+      container element. Source: <code>src/log.ts</code> (the log shape),
+      <code>src/state.ts</code> (the interpolation, which is the interesting part) and
+      <code>src/viewer.ts</code> (pitch, camera, HUD, minimap).
+    </footer>
+    <script src="bundle.js"></script>
+  </body>
+</html>
