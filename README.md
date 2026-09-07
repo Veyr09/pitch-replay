@@ -60,10 +60,23 @@ zoom in and back out again on the same easing, so the scene always pans.
 
 ## Measured
 
-Built and run in Chrome 152 at 1280×900: **no console errors, and the animation loop is not the
-bottleneck** — a 2-second `requestAnimationFrame` count returned 360 frames per second on a
-desktop GPU with the frame limiter off, so there is a wide margin under the 60 fps target that a
-mobile WebView needs. The bundle is 538 KB minified, PixiJS included.
+Built and run in headless Chrome 152 at 1280x900. Numbers, not impressions:
+
+- **No console errors**, and `tsc --noEmit` is clean under `strict` with `noUncheckedIndexedAccess`.
+- **About 360 frames per second** with the frame limiter off, so the animation loop is nowhere
+  near the bottleneck for the 60 fps a mobile WebView needs.
+- **The ball is never off screen: 0 frames out of ~3,240 at each of 30x, 60x and 200x.**
+
+That last one is worth spelling out, because it was a real bug and a screenshot hid it. The
+camera eases in wall-clock time, so the faster the replay runs the further the ball gets ahead
+of it; measured at 200x, the ball was outside the frame in **1,895 of 7,163 frames - 26%** -
+and the worst excursion was 2.69 times the half-view. A camera that only eases cannot fix that
+at every speed. The fix is a soft follow with a hard leash: pan smoothly toward the ball, but
+never allow it further than `CAMERA_LEASH` of the half-view from the centre. Framing then
+behaves identically at every playback speed, which the three runs above confirm.
+
+The check drives the real engine through `window.viewer` rather than a copy of it, so it cannot
+drift from what the page actually does.
 
 ## Scope
 

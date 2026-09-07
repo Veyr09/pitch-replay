@@ -32,8 +32,17 @@ const BALL_RADIUS_PX = 6;
 // Camera. Metres of pitch visible across the width of the canvas at rest, and
 // when a key moment pulls in. Both are approached with an exponential ease, so
 // there is no cut at any point.
-const CAMERA_WIDE_M = 82;
-const CAMERA_CLOSE_M = 52;
+const CAMERA_WIDE_M = 72;
+const CAMERA_CLOSE_M = 46;
+// How far past the touchline and goal line the camera may travel. Without this
+// the camera is pinned to the middle of a 105 m pitch by a 72 m view and simply
+// cannot follow the ball into either box - it leaves the frame and the replay
+// looks broken. Letting a little background show at the ends is what real
+// broadcast framing does anyway.
+const OVERSCAN_X_M = 34;
+const OVERSCAN_Y_M = 14;
+// The ball may never be further than this fraction of the half-view from centre.
+const CAMERA_LEASH = 0.62;
 const CAMERA_EASE_PER_SECOND = 2.4;
 const KEY_MOMENT_SECONDS = 3.5;
 const OVERLAY_FADE_SECONDS = 2.6;
@@ -174,6 +183,16 @@ export class MatchViewer {
     return this.playing;
   }
 
+  /** Camera centre and half-width in metres. Used by the in-frame check. */
+  get cameraDebug(): { x: number; y: number; halfWidthM: number } {
+    return { x: this.cameraX, y: this.cameraY, halfWidthM: this.cameraWidthM / 2 };
+  }
+
+  /** Where the ball is right now, so the same check can compare the two. */
+  get ballDebug(): { x: number; y: number } | null {
+    return this.state ? this.state.at(this.time).ball : null;
+  }
+
   private metresToPixels(): number {
     return this.app.screen.width / this.cameraWidthM;
   }
@@ -224,15 +243,27 @@ export class MatchViewer {
     const scale = this.metresToPixels();
     const halfViewX = this.app.screen.width / 2 / scale;
     const halfViewY = (this.app.screen.height - HUD_HEIGHT_PX - MINIMAP_BAND_PX) / 2 / scale;
-    // Keep the camera inside the pitch so the eye never leaves the grass, unless
-    // the pitch is smaller than the view, in which case centre it.
-    const limitX = Math.max(0, PITCH_LENGTH_M / 2 - halfViewX);
-    const limitY = Math.max(0, PITCH_WIDTH_M / 2 - halfViewY);
+
+    // Keep the camera near the pitch so the eye is not left staring at empty
+    // background, but allow enough overscan to reach both boxes.
+    const limitX = Math.max(0, PITCH_LENGTH_M / 2 - halfViewX + OVERSCAN_X_M);
+    const limitY = Math.max(0, PITCH_WIDTH_M / 2 - halfViewY + OVERSCAN_Y_M);
     const targetX = Math.max(-limitX, Math.min(limitX, state.ball.x));
     const targetY = Math.max(-limitY, Math.min(limitY, state.ball.y));
 
     this.cameraX = expEase(this.cameraX, targetX, CAMERA_EASE_PER_SECOND, dt);
     this.cameraY = expEase(this.cameraY, targetY, CAMERA_EASE_PER_SECOND, dt);
+
+    // The ease alone is not enough, and measuring said so: playing at 200x, the
+    // ball outran the camera and was off screen in 26% of frames. The ease is in
+    // wall-clock time, so the faster the replay the further the ball gets. A soft
+    // follow with a hard leash fixes it without making the motion snappy: pan
+    // smoothly, but never let the ball get further than this fraction of the
+    // half-view from the centre. Framing then behaves the same at every speed.
+    const leashX = halfViewX * CAMERA_LEASH;
+    const leashY = halfViewY * CAMERA_LEASH;
+    this.cameraX = Math.max(state.ball.x - leashX, Math.min(state.ball.x + leashX, this.cameraX));
+    this.cameraY = Math.max(state.ball.y - leashY, Math.min(state.ball.y + leashY, this.cameraY));
 
     this.world.scale.set(scale);
     this.world.position.set(

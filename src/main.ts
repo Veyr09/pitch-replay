@@ -57,6 +57,10 @@ async function boot(): Promise<void> {
     viewer.seek(Number(scrub.value));
   });
 
+  // Exposed so the ball-in-frame check can drive the real engine rather than a
+  // copy of it. Harmless in the demo page and invaluable in a headless run.
+  (window as unknown as { viewer: MatchViewer }).viewer = viewer;
+
   // Keep the scrubber in step with playback without fighting the user's drag.
   let dragging = false;
   scrub?.addEventListener("pointerdown", () => {
