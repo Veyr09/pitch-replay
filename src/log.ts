@@ -120,7 +120,10 @@ export function generateMatchLog(seed = 20260907): MatchLog {
       });
       events.push({ t, kind: "carry", team, player, at: { ...ball }, to });
       ball = to;
-    } else if (roll < 0.86 && Math.abs(ball.x) > HALF_LENGTH * 0.45) {
+    // Signed, not absolute. With Math.abs a team could "shoot" from deep inside
+    // its OWN half at the far goal - one such event sent the ball 105 m in 1.2 s,
+    // which is 87 m/s and the only implausible motion left in the replay.
+    } else if (roll < 0.86 && ball.x * forward > HALF_LENGTH * 0.45) {
       const goal = { x: forward * HALF_LENGTH, y: (random() - 0.5) * 6 };
       events.push({ t, kind: "shot", team, player, at: { ...ball }, to: goal });
       if (random() < 0.14) {

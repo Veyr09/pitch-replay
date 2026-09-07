@@ -59,10 +59,11 @@
       <h1>Pitch replay &mdash; a full match from a sparse event log</h1>
       <p>
         The log holds one pitch position per event, a few seconds apart. Everything between two
-        events is invented here: the ball travels at a plausible speed and then dwells, and the
-        other twenty-one players are a pure function of the clock, the formation and the ball.
-        Nothing is simulated frame to frame, so seeking is exact &mdash; drag the scrubber and the
-        picture matches what playing to that minute would have shown. Same seed, same replay.
+        events is invented here: the ball is carried continuously from each event's position to
+        the next, leaving fast and settling, and the other twenty-one players are a pure function
+        of the clock, the formation and the ball. Nothing is simulated frame to frame, so seeking
+        is exact &mdash; drag the scrubber and the picture matches what playing to that minute
+        would have shown. Same seed, same replay.
       </p>
     </header>
     <div id="stage"></div>

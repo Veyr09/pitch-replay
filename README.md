@@ -14,11 +14,20 @@ the same match replays differently each time it is watched.
 
 Two decisions carry the whole result.
 
-**The ball is not lerped across the gap.** A pass that takes 0.9 seconds and is then followed by
-four seconds of nothing looks absurd if the ball slides slowly for the whole five: the ball
-travels at a plausible speed with an ease-out, arrives, and *dwells*. The gap is absorbed by
-waiting, not by slowing down. `PASS_SPEED_M_PER_S`, `CARRY_SPEED_M_PER_S` and
-`SHOT_SPEED_M_PER_S` in `src/state.ts` are the whole model.
+**The ball is a continuous path, not a series of hops.** The first version moved it at a
+realistic 18 m/s and then parked it until the next event, which is right at 1x and wrong at the
+speeds this viewer exists for: sampled every 50 ms, the ball was **stationary 55% of the time**,
+and the largest single step was **52.5 m — half the pitch — between one frame and the next**,
+because a goal at the byline is followed by a kickoff at the centre spot and nothing carried it
+there. It read as a ball that teleports.
+
+So the ball is now a list of waypoints built once from the log — one per event, at that event's
+own time and position — and its position at any moment is an interpolation between the two
+surrounding waypoints. It is therefore always somewhere between two known points and never jumps.
+A struck ball eases out so it leaves the boot fast and settles; a reposition between events uses a
+smoothstep so it glides. Measured across the whole 90 minutes afterwards: **stationary 20% of the
+time** (tackles, cards and offsides genuinely do not move the ball), **median 0.6 m/s, 90th
+percentile 3.1, 99th percentile 8.6**, worst 60.
 
 **Off-ball players are a pure function of time, not a simulation.** Each of the other
 twenty-one is computed from the formation slot, the ball, and the clock — no integration, no
@@ -26,6 +35,9 @@ state carried between frames:
 
 - the team shape slides toward the ball's end of the pitch, but only partly (`SHAPE_FOLLOW`),
   because a back four does not stand on the halfway line just because the ball is there;
+- the player on the ball is pulled most of the way toward it (`CARRIER_PULL`) rather than snapped
+  onto it — snapping made a different player teleport across the pitch at every event and teleport
+  back at the next one;
 - players within `ATTRACTION_RADIUS_M` close on the ball, proportionally to how near they are;
 - the keeper is excluded and tracks the ball laterally near his own line;
 - a small seeded drift keeps nobody frozen while play is elsewhere.
@@ -57,6 +69,15 @@ Then serve `docs/`:
 
 The camera never cuts. It eases toward the ball, and a goal, card, save or offside pulls the
 zoom in and back out again on the same easing, so the scene always pans.
+
+Three drawing bugs are worth recording because each was invisible in a still and obvious in
+motion. `Graphics.rect` draws **nothing at all** for a negative width, and the left-hand penalty
+area and goal were built with `side * 16.5` at `side = -1`, so that whole end of the pitch had no
+markings — every rect is now built with `min`/`abs`. `Graphics.arc` **continues the current path**
+rather than starting a new one, so an arc after a circle joins them with a straight line; an
+attempt at hair drew twenty-two black streaks across the grass. And the camera is allowed to
+overscan past the touchline so it can follow the ball into both boxes, which left the page
+background showing beyond the grass until a stadium surround was drawn behind the pitch.
 
 ## Measured
 

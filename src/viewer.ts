@@ -27,6 +27,8 @@ const SKIN = 0xe8bd93;
 const HIGHLIGHT = 0xffe27a;
 const CROWD_BACK = 0x121a22;
 const CROWD_DOTS = 0x2e3d4c;
+const SURROUND = 0x16321f;
+const SURROUND_M = 40;
 const HUD_INK = 0xffffff;
 const HUD_PANEL = 0x11161c;
 
@@ -220,6 +222,17 @@ export class MatchViewer {
       g.fill({ color: CROWD_DOTS, alpha: 0.5 + crowdRandom() * 0.5 });
     }
 
+    // Surround first. The camera is allowed to overscan so it can follow the ball
+    // into both boxes, and without this the area past the touchline is the page
+    // background - it reads as the pitch having fallen off the world.
+    g.rect(
+      -PITCH_LENGTH_M / 2 - SURROUND_M,
+      -PITCH_WIDTH_M / 2 - SURROUND_M,
+      PITCH_LENGTH_M + SURROUND_M * 2,
+      PITCH_WIDTH_M + SURROUND_M * 2,
+    );
+    g.fill(SURROUND);
+
     const stripeWidth = PITCH_LENGTH_M / MOWN_STRIPES;
     for (let i = 0; i < MOWN_STRIPES; i += 1) {
       g.rect(-PITCH_LENGTH_M / 2 + i * stripeWidth, -PITCH_WIDTH_M / 2, stripeWidth, PITCH_WIDTH_M);
@@ -230,14 +243,32 @@ export class MatchViewer {
     g.rect(-PITCH_LENGTH_M / 2, -PITCH_WIDTH_M / 2, PITCH_LENGTH_M, PITCH_WIDTH_M).stroke(line);
     g.moveTo(0, -PITCH_WIDTH_M / 2).lineTo(0, PITCH_WIDTH_M / 2).stroke(line);
     g.circle(0, 0, 9.15).stroke(line);
-    g.circle(0, 0, 0.4).fill(LINE);
+    g.circle(0, 0, 0.28).fill({ color: LINE, alpha: 0.7 });
+
+    // Every rect here is built with min/abs rather than a signed width. Pixi
+    // draws nothing at all for a negative width, which is why the left-hand
+    // penalty area and goal were simply missing: at side = -1 every one of
+    // these widths came out negative.
+    const box = (x0: number, x1: number, y0: number, y1: number) =>
+      g.rect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0));
 
     for (const side of [-1, 1]) {
-      const x = (side * PITCH_LENGTH_M) / 2;
-      g.rect(x - side * 16.5, -20.16, side * 16.5, 40.32).stroke(line);
-      g.rect(x - side * 5.5, -9.16, side * 5.5, 18.32).stroke(line);
-      g.circle(x - side * 11, 0, 0.4).fill(LINE);
-      g.rect(x, -3.66, side * 1.8, 7.32).stroke({ width: 0.3, color: LINE, alpha: 1 });
+      const goalLine = (side * PITCH_LENGTH_M) / 2;
+      box(goalLine, goalLine - side * 16.5, -20.16, 20.16).stroke(line);
+      box(goalLine, goalLine - side * 5.5, -9.16, 9.16).stroke(line);
+      // Dimmer and smaller than the ball, which it was being mistaken for.
+      g.circle(goalLine - side * 11, 0, 0.28).fill({ color: LINE, alpha: 0.7 });
+      box(goalLine, goalLine + side * 1.8, -3.66, 3.66).stroke({
+        width: 0.3,
+        color: LINE,
+        alpha: 1,
+      });
+      // The net, drawn as a light hatch so the goal reads as a goal.
+      for (let i = 1; i < 6; i += 1) {
+        const y = -3.66 + (7.32 * i) / 6;
+        g.moveTo(goalLine, y).lineTo(goalLine + side * 1.8, y);
+        g.stroke({ width: 0.08, color: LINE, alpha: 0.55 });
+      }
     }
   }
 

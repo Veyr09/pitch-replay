@@ -8,11 +8,12 @@
  *
  * Two decisions carry the result:
  *
- * 1. **The ball is not linearly interpolated across the gap.** A pass that takes
- *    0.9 seconds and then waits four seconds for the next event looks nothing
- *    like a ball sliding slowly across the pitch for five seconds. So the ball
- *    travels at a plausible speed with an ease-out, arrives, and dwells. The gap
- *    is absorbed by waiting, not by slowing down.
+ * 1. **The ball leaves fast and arrives slowly, across most of the gap.** A
+ *    straight lerp between two events makes a pass look like a ball being pushed
+ *    slowly across the grass, so there is an ease-out: it leaves the boot quickly
+ *    and settles. But it uses most of the interval to do it rather than arriving
+ *    in 0.9 s and parking - at the 60x this viewer exists for, parking is 100 ms
+ *    of a motionless ball and it reads as teleporting.
  *
  * 2. **Off-ball players are a pure function of time, not a simulation.** Every
  *    player's position is computed from the formation, the ball, and the clock —
@@ -67,6 +68,12 @@ const PASS_SPEED_M_PER_S = 18;
 const CARRY_SPEED_M_PER_S = 7;
 const SHOT_SPEED_M_PER_S = 26;
 const MIN_TRAVEL_SECONDS = 0.25;
+// How much of the interval between two events the ball spends travelling.
+// Below 1 so it still settles before the next touch; high enough that it is
+// almost always moving at replay speed.
+const FLIGHT_SHARE_OF_GAP = 0.55;
+// Never let the arrival collide with the next event's own waypoint.
+const FLIGHT_CEILING_OF_GAP = 0.85;
 
 // The team shape slides up and down the pitch with the ball, but not one for
 // one: a back four does not stand on the halfway line because the ball is there.
@@ -81,6 +88,9 @@ const DRIFT_AMPLITUDE_M = 1.6;
 // this many seconds, which turns the step changes at each event into motion.
 const SMOOTHING_SECONDS = 2.2;
 const SMOOTHING_SAMPLES = 7;
+// How far the player on the ball is drawn toward it. Not 1: at 1 they snap
+// onto the ball and snap off again, which is the teleport this replaces.
+const CARRIER_PULL = 0.75;
 
 function travelSeconds(kind: MatchEvent["kind"], distance: number): number {
   const speed =
@@ -104,18 +114,76 @@ function eventIndexAt(events: readonly MatchEvent[], t: number): number {
   return low;
 }
 
-/** Where the ball is at time t: travelling if mid-flight, parked if not. */
-function ballAt(events: readonly MatchEvent[], t: number): Point {
-  const index = eventIndexAt(events, t);
-  const event = events[index]!;
-  const from = event.at;
-  const to = event.to;
-  if (!to) return from;
+interface BallWaypoint {
+  t: number;
+  x: number;
+  y: number;
+  /** True when the segment ENDING here was a struck ball rather than a glide. */
+  kick: boolean;
+}
 
-  const distance = Math.hypot(to.x - from.x, to.y - from.y);
-  const flight = travelSeconds(event.kind, distance);
-  const u = Math.min(1, Math.max(0, (t - event.t) / flight));
-  const eased = easeOut(u);
+function smoothStep(u: number): number {
+  return u * u * (3 - 2 * u);
+}
+
+/**
+ * Every point the ball is known to be at, in order.
+ *
+ * Built once from the log. Between two waypoints the ball interpolates, which
+ * is what makes it continuous: there is no state in which it is parked, and no
+ * transition it makes in a single frame.
+ */
+function buildBallPath(events: readonly MatchEvent[]): BallWaypoint[] {
+  const path: BallWaypoint[] = [];
+  const push = (t: number, point: Point, kick: boolean) => {
+    const last = path[path.length - 1];
+    if (last && t <= last.t) return;
+    path.push({ t, x: point.x, y: point.y, kick });
+  };
+
+  // One waypoint per event, at the event's own time and position - and nothing
+  // in between. An earlier version also emitted the arrival of a pass part way
+  // through the gap, which is where the dwell came from: the arrival point and
+  // the next event's position are the same place, so the ball reached it early
+  // and then sat there. Sampled every 50 ms, it was stationary 55% of the time.
+  // With only the event positions on the path, the ball is interpolated across
+  // the whole interval and is never parked.
+  events.forEach((event, index) => {
+    const previous = events[index - 1];
+    push(event.t, event.at, !!previous?.to);
+  });
+
+  // The last event may still send the ball somewhere; give it somewhere to go.
+  const final = events[events.length - 1];
+  if (final?.to) {
+    const distance = Math.hypot(final.to.x - final.at.x, final.to.y - final.at.y);
+    push(final.t + travelSeconds(final.kind, distance), final.to, true);
+  }
+
+  return path;
+}
+
+function waypointIndexAt(path: readonly BallWaypoint[], t: number): number {
+  let low = 0;
+  let high = path.length - 1;
+  while (low < high) {
+    const mid = (low + high + 1) >> 1;
+    if (path[mid]!.t <= t) low = mid;
+    else high = mid - 1;
+  }
+  return low;
+}
+
+/** Where the ball is at time t: always between two known points, never parked. */
+function ballOnPath(path: readonly BallWaypoint[], t: number): Point {
+  const index = waypointIndexAt(path, t);
+  const from = path[index]!;
+  const to = path[index + 1];
+  if (!to) return { x: from.x, y: from.y };
+
+  const span = to.t - from.t;
+  const u = span > 0 ? Math.min(1, Math.max(0, (t - from.t) / span)) : 1;
+  const eased = to.kick ? easeOut(u) : smoothStep(u);
   return { x: from.x + (to.x - from.x) * eased, y: from.y + (to.y - from.y) * eased };
 }
 
@@ -174,10 +242,12 @@ function targetFor(
 
 export class MatchClockState {
   private readonly phases: number[];
+  private readonly ballPath: BallWaypoint[];
 
   constructor(private readonly log: MatchLog) {
     const random = makeRandom(log.seed ^ 0x9e3779b9);
     this.phases = Array.from({ length: PLAYERS_PER_TEAM * 2 }, () => random() * Math.PI * 2);
+    this.ballPath = buildBallPath(log.events);
   }
 
   /** The full picture at time t. Pure: the same t always gives the same state. */
@@ -186,7 +256,7 @@ export class MatchClockState {
     const clamped = Math.max(0, Math.min(this.log.durationSeconds, t));
     const index = eventIndexAt(events, clamped);
     const current = events[index]!;
-    const ball = ballAt(events, clamped);
+    const ball = ballOnPath(this.ballPath, clamped);
 
     const players: PlayerState[] = [];
     for (let team = 0 as 0 | 1; team < 2; team = (team + 1) as 0 | 1) {
@@ -200,7 +270,7 @@ export class MatchClockState {
         for (let s = 0; s < SMOOTHING_SAMPLES; s += 1) {
           const offset = (s / (SMOOTHING_SAMPLES - 1) - 1) * SMOOTHING_SECONDS;
           const sampleT = Math.max(0, clamped + offset);
-          const sampleBall = ballAt(events, sampleT);
+          const sampleBall = ballOnPath(this.ballPath, sampleT);
           const target = targetFor(team, slot, sampleBall, sampleT, phase);
           sumX += target.x;
           sumY += target.y;
@@ -208,9 +278,18 @@ export class MatchClockState {
 
         const shirt = slot + 1;
         const onBall = current.team === team && current.player === shirt && !!current.to;
+        // The carrier is drawn AT the ball, but getting there must not be a jump:
+        // snapping their position to the ball made a different player teleport
+        // across the pitch at every event and teleport back at the next one. So
+        // the carrier is pulled the last part of the way toward the ball on top
+        // of the same smoothed target everyone else uses.
+        const smoothed = { x: sumX / SMOOTHING_SAMPLES, y: sumY / SMOOTHING_SAMPLES };
         const position = onBall
-          ? { ...ball }
-          : { x: sumX / SMOOTHING_SAMPLES, y: sumY / SMOOTHING_SAMPLES };
+          ? {
+              x: smoothed.x + (ball.x - smoothed.x) * CARRIER_PULL,
+              y: smoothed.y + (ball.y - smoothed.y) * CARRIER_PULL,
+            }
+          : smoothed;
         players.push({ team, shirt, position, hasBall: onBall });
       }
     }
