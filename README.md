@@ -52,7 +52,7 @@ Then serve `docs/`:
 |---|---|
 | `src/log.ts` | The log format, and a seeded generator so the viewer can be shown without a simulation attached. |
 | `src/state.ts` | The interesting part: sparse events to a full picture at any `t`. |
-| `src/viewer.ts` | Pitch, 22 players with shirt numbers, ball, easing camera, clock and score, key-moment zoom and overlay, and the strip along the bottom showing the whole pitch. |
+| `src/viewer.ts` | Pitch and crowd, 22 front-facing busts with shirt numbers, ball, easing camera, clock and score, key-moment zoom and overlay, and the strip along the bottom showing the whole pitch. |
 | `src/main.ts` | Mount, and the demo page's controls. |
 
 The camera never cuts. It eases toward the ball, and a goal, card, save or offside pulls the

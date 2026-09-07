@@ -8,7 +8,7 @@
  */
 
 import { Application, Container, Graphics, Text, TextStyle } from "pixi.js";
-import { MatchLog, PITCH_LENGTH_M, PITCH_WIDTH_M } from "./log";
+import { MatchLog, PITCH_LENGTH_M, PITCH_WIDTH_M, makeRandom } from "./log";
 import { MatchClockState, MatchState } from "./state";
 
 export interface ViewerOptions {
@@ -22,6 +22,11 @@ const LINE = 0xf2f7f3;
 const HOME = 0xe8402a;
 const AWAY = 0x2f5fd0;
 const BALL = 0xfdfdfd;
+const OUTLINE = 0x0d1117;
+const SKIN = 0xe8bd93;
+const HIGHLIGHT = 0xffe27a;
+const CROWD_BACK = 0x121a22;
+const CROWD_DOTS = 0x2e3d4c;
 const HUD_INK = 0xffffff;
 const HUD_PANEL = 0x11161c;
 
@@ -201,6 +206,20 @@ export class MatchViewer {
     const g = this.pitch;
     g.clear();
 
+    // The crowd sits behind the far touchline. It is deliberately cheap - two
+    // bands and a seeded scatter of dots - because it only ever appears at the
+    // top of frame and must not cost anything per frame.
+    const crowdDepth = 22;
+    g.rect(-PITCH_LENGTH_M / 2 - 30, -PITCH_WIDTH_M / 2 - crowdDepth, PITCH_LENGTH_M + 60, crowdDepth);
+    g.fill(CROWD_BACK);
+    const crowdRandom = makeRandom(0x5eed);
+    for (let i = 0; i < 900; i += 1) {
+      const cx = -PITCH_LENGTH_M / 2 - 30 + crowdRandom() * (PITCH_LENGTH_M + 60);
+      const cy = -PITCH_WIDTH_M / 2 - crowdDepth + crowdRandom() * (crowdDepth - 1.5);
+      g.circle(cx, cy, 0.42);
+      g.fill({ color: CROWD_DOTS, alpha: 0.5 + crowdRandom() * 0.5 });
+    }
+
     const stripeWidth = PITCH_LENGTH_M / MOWN_STRIPES;
     for (let i = 0; i < MOWN_STRIPES; i += 1) {
       g.rect(-PITCH_LENGTH_M / 2 + i * stripeWidth, -PITCH_WIDTH_M / 2, stripeWidth, PITCH_WIDTH_M);
@@ -280,19 +299,38 @@ export class MatchViewer {
     const radius = PLAYER_RADIUS_PX / scale;
     g.clear();
 
+    // Contact shadows first, so no bust is drawn over another's shadow.
     for (const player of state.players) {
-      g.circle(player.position.x, player.position.y + radius * 0.35, radius * 0.9);
-      g.fill({ color: 0x000000, alpha: 0.28 });
+      g.ellipse(player.position.x, player.position.y + radius * 0.9, radius * 0.85, radius * 0.34);
+      g.fill({ color: 0x000000, alpha: 0.3 });
     }
 
-    for (const player of state.players) {
-      g.circle(player.position.x, player.position.y, radius);
-      g.fill(player.team === 0 ? HOME : AWAY);
-      g.stroke({ width: radius * 0.14, color: 0x0d1117, alpha: 0.9 });
+    // Busts, drawn back to front so the near ones overlap the far ones.
+    const ordered = [...state.players].sort((a, b) => a.position.y - b.position.y);
+    for (const player of ordered) {
+      const x = player.position.x;
+      const y = player.position.y;
+      const shirt = player.team === 0 ? HOME : AWAY;
+
       if (player.hasBall) {
-        g.circle(player.position.x, player.position.y, radius * 1.5);
-        g.stroke({ width: radius * 0.16, color: 0xffe27a, alpha: 0.95 });
+        g.ellipse(x, y + radius * 0.9, radius * 1.25, radius * 0.5);
+        g.stroke({ width: radius * 0.14, color: HIGHLIGHT, alpha: 0.95 });
       }
+
+      // Shoulders: a rounded torso wider than the head, which is what reads as
+      // a front-facing bust at this size rather than a ball on a stick.
+      g.roundRect(x - radius * 0.78, y - radius * 0.05, radius * 1.56, radius * 1.0, radius * 0.42);
+      g.fill(shirt);
+      g.stroke({ width: radius * 0.12, color: OUTLINE, alpha: 0.85 });
+
+      g.circle(x, y - radius * 0.62, radius * 0.52);
+      g.fill(SKIN);
+      g.stroke({ width: radius * 0.12, color: OUTLINE, alpha: 0.85 });
+
+      // No hair arc here on purpose: Graphics.arc continues the current path
+      // rather than starting a new one, so an arc after a circle draws a line
+      // across the pitch to reach it. Head and shoulders read as a bust without
+      // it, and the real character art is the client's to supply anyway.
     }
 
     g.circle(state.ball.x, state.ball.y, BALL_RADIUS_PX / scale);
@@ -305,7 +343,10 @@ export class MatchViewer {
       const label = this.shirts[index];
       if (!label) return;
       label.text = String(player.shirt);
-      const point = this.world.toGlobal({ x: player.position.x, y: player.position.y });
+      const point = this.world.toGlobal({
+        x: player.position.x,
+        y: player.position.y + PLAYER_RADIUS_PX / this.metresToPixels() * 0.45,
+      });
       label.position.set(point.x, point.y);
     });
   }
